@@ -47,21 +47,30 @@ export default function App() {
     slots: []
   });
 
-  // --- 1. Sign in anonymously + live-subscribe to all sessions ---
+  // --- 1. Sign in anonymously FIRST, THEN live-subscribe to all sessions ---
+  // (Subscribing before auth resolves would hit the rules with no request.auth
+  // and permanently error the listener.)
   useEffect(() => {
-    ensureAuth().then(setMyUid).catch(err => console.error("Auth failed:", err));
-
-    const unsub = onSnapshot(
-      collection(db, 'sessions'),
-      (snap) => {
-        setSessions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    let unsub = () => {};
+    ensureAuth()
+      .then((uid) => {
+        setMyUid(uid);
+        unsub = onSnapshot(
+          collection(db, 'sessions'),
+          (snap) => {
+            setSessions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setLoading(false);
+          },
+          (err) => {
+            console.error("Failed to load sessions:", err);
+            setLoading(false);
+          }
+        );
+      })
+      .catch((err) => {
+        console.error("Auth failed:", err);
         setLoading(false);
-      },
-      (err) => {
-        console.error("Failed to load sessions:", err);
-        setLoading(false);
-      }
-    );
+      });
     return () => unsub();
   }, []);
 
