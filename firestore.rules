@@ -1,0 +1,35 @@
+rules_version = '2';
+
+// CaseConnect security rules.
+// Everyone is anonymously authenticated (auth.uid exists). A student owns the
+// session doc they create; only they can edit its details — EXCEPT that any
+// signed-in user may modify ONLY the `slots` array, which is what booking does
+// (it removes the booked slot from the partner's availability).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /sessions/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if request.auth != null && (
+                      resource.data.ownerUid == request.auth.uid
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots'])
+                    );
+      allow delete: if request.auth != null
+                    && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /bookings/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    match /reviews/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+  }
+}
