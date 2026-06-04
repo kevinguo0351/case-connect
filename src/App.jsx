@@ -27,13 +27,37 @@ const LEVELS = ["Rookie", "Intermediate", "Master", "Coach"];
 
 // IANA zones auto-switch standard/DST (e.g. America/Denver = MST in winter, MDT now).
 const TIMEZONES = [
-  { value: "America/Denver", label: "Mountain Time (MT)" },
-  { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
-  { value: "America/Phoenix", label: "Arizona (no DST)" },
-  { value: "America/Chicago", label: "Central Time (CT)" },
-  { value: "America/New_York", label: "Eastern Time (ET)" },
-  { value: "America/Anchorage", label: "Alaska Time (AKT)" },
-  { value: "Pacific/Honolulu", label: "Hawaii (HT)" },
+  // United States
+  { value: "America/Denver", label: "US — Mountain (MT)" },
+  { value: "America/Los_Angeles", label: "US — Pacific (PT)" },
+  { value: "America/Phoenix", label: "US — Arizona (no DST)" },
+  { value: "America/Chicago", label: "US — Central (CT)" },
+  { value: "America/New_York", label: "US — Eastern (ET)" },
+  { value: "America/Anchorage", label: "US — Alaska (AKT)" },
+  { value: "Pacific/Honolulu", label: "US — Hawaii (HT)" },
+  // Americas (other)
+  { value: "America/Toronto", label: "Canada — Eastern" },
+  { value: "America/Vancouver", label: "Canada — Pacific" },
+  { value: "America/Mexico_City", label: "Mexico City" },
+  { value: "America/Sao_Paulo", label: "Brazil — São Paulo" },
+  // Europe / Africa
+  { value: "Europe/London", label: "UK — London (GMT/BST)" },
+  { value: "Europe/Paris", label: "Europe — Central (Paris/Berlin)" },
+  { value: "Europe/Athens", label: "Europe — Eastern (Athens)" },
+  { value: "Europe/Moscow", label: "Russia — Moscow" },
+  { value: "Africa/Johannesburg", label: "South Africa" },
+  { value: "Africa/Cairo", label: "Egypt — Cairo" },
+  // Asia / Middle East
+  { value: "Asia/Dubai", label: "UAE — Dubai" },
+  { value: "Asia/Kolkata", label: "India (IST)" },
+  { value: "Asia/Shanghai", label: "China (Beijing/Shanghai)" },
+  { value: "Asia/Hong_Kong", label: "Hong Kong" },
+  { value: "Asia/Singapore", label: "Singapore" },
+  { value: "Asia/Tokyo", label: "Japan — Tokyo" },
+  { value: "Asia/Seoul", label: "South Korea — Seoul" },
+  // Oceania
+  { value: "Australia/Sydney", label: "Australia — Sydney" },
+  { value: "Pacific/Auckland", label: "New Zealand — Auckland" },
 ];
 const DEFAULT_TZ = "America/Denver";
 
