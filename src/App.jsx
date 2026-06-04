@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, Clock, Check, User, ArrowRight, Star, Filter, BookOpen, Download, FileText, Zap, HelpCircle, LogIn, RefreshCw, CalendarPlus, X } from 'lucide-react';
+import { Clock, Check, User, ArrowRight, Star, Filter, BookOpen, Download, LogIn, RefreshCw, CalendarPlus, X, ExternalLink } from 'lucide-react';
 import { collection, doc, setDoc, getDocs, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db, ensureAuth } from './firebase';
-import { slotToDateRange, googleCalendarUrl, buildIcs, downloadIcs } from './lib/calendar';
+import { slotToDateRange, formatSlotTime, googleCalendarUrl, buildIcs, downloadIcs } from './lib/calendar';
+
+const BYU_LOGO = `${import.meta.env.BASE_URL}byu-logo-white.svg`;
+const LAST_USER_KEY = 'caseconnect:lastUser';
 
 // --- CONSTANTS & CONFIG ---
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -22,12 +25,17 @@ const CASE_TYPES = [
 
 const LEVELS = ["Rookie", "Intermediate", "Master", "Coach"];
 
-const RESOURCES = [
-  { title: "Case Book Master List", type: "PDF", size: "12 MB", desc: "Comprehensive collection of 50+ mock cases." },
-  { title: "Case Interview Encyclopedia", type: "Web", desc: "The A-Z glossary of consulting terms and frameworks." },
-  { title: "Behavioral STAR Method Guide", type: "PDF", size: "2.4 MB", desc: "How to answer 'Tell me about a time' questions." },
-  { title: "TBD Resource", type: "TBD", desc: "Coming soon..." },
+// IANA zones auto-switch standard/DST (e.g. America/Denver = MST in winter, MDT now).
+const TIMEZONES = [
+  { value: "America/Denver", label: "Mountain Time (MT)" },
+  { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
+  { value: "America/Phoenix", label: "Arizona (no DST)" },
+  { value: "America/Chicago", label: "Central Time (CT)" },
+  { value: "America/New_York", label: "Eastern Time (ET)" },
+  { value: "America/Anchorage", label: "Alaska Time (AKT)" },
+  { value: "Pacific/Honolulu", label: "Hawaii (HT)" },
 ];
+const DEFAULT_TZ = "America/Denver";
 
 export default function App() {
   const [currentView, setCurrentView] = useState('onboarding');
@@ -44,8 +52,20 @@ export default function App() {
     level: "Rookie",
     caseType: "Profitability",
     role: "Flexible",
+    timeZone: DEFAULT_TZ,
     slots: []
   });
+  const [showSuggest, setShowSuggest] = useState(false);
+
+  // Remember this device's last user (cookie-like localStorage) for instant prefill.
+  const rememberUser = (info) => {
+    try {
+      localStorage.setItem(LAST_USER_KEY, JSON.stringify({
+        name: info.name, email: info.email, level: info.level,
+        caseType: info.caseType, role: info.role, timeZone: info.timeZone,
+      }));
+    } catch { /* storage unavailable */ }
+  };
 
   // --- 1. Sign in anonymously FIRST, THEN live-subscribe to all sessions ---
   // (Subscribing before auth resolves would hit the rules with no request.auth
@@ -72,6 +92,14 @@ export default function App() {
         setLoading(false);
       });
     return () => unsub();
+  }, []);
+
+  // --- 1b. Prefill from this device's last login (localStorage) ---
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAST_USER_KEY) || 'null');
+      if (saved) setMyInfo(prev => ({ ...prev, ...saved }));
+    } catch { /* ignore */ }
   }, []);
 
   // --- 2. Auto-Fill My Schedule if Found ---
@@ -112,7 +140,29 @@ export default function App() {
       alert("Please enter your Name and Email to continue.");
       return;
     }
+    rememberUser(myInfo);
     setCurrentView('your-time');
+  };
+
+  // Members matching the typed name/email — lets a returning user type a word
+  // and autofill the rest from the database.
+  const suggestions = useMemo(() => {
+    const q = myInfo.name.trim().toLowerCase();
+    if (!q) return [];
+    return sessions
+      .filter(s => (s.name || '').toLowerCase().includes(q) || (s.email || '').toLowerCase().includes(q))
+      .filter(s => (s.name || '').toLowerCase() !== q)
+      .slice(0, 6);
+  }, [myInfo.name, sessions]);
+
+  const applyMember = (s) => {
+    setMyInfo(prev => ({
+      ...prev,
+      name: s.name, email: s.email, level: s.level,
+      caseType: s.caseType, role: s.role,
+      timeZone: s.timeZone || DEFAULT_TZ, slots: s.slots || [],
+    }));
+    setShowSuggest(false);
   };
 
   const handleSaveSession = async () => {
@@ -129,11 +179,13 @@ export default function App() {
         level: myInfo.level,
         caseType: myInfo.caseType,
         role: myInfo.role,
+        timeZone: myInfo.timeZone,
         slots: myInfo.slots,
         rating: existing?.rating ?? 'New',
         ownerUid: myUid,
         updatedAt: serverTimestamp(),
       }, { merge: true });
+      rememberUser(myInfo);
 
       setNotification({ title: "Availability Published!", message: "You are now live on the schedule.", type: "success" });
       setTimeout(() => {
@@ -170,8 +222,8 @@ export default function App() {
       {currentView === 'onboarding' && (
         <div className="min-h-screen flex flex-col items-center justify-center p-4 animate-in fade-in duration-700">
           <div className="mb-8 text-center">
-            <div className="bg-indigo-600 text-white p-4 rounded-2xl inline-block mb-4 shadow-lg shadow-indigo-200">
-              <Calendar size={48} />
+            <div className="bg-[#002E5D] p-5 rounded-2xl inline-block mb-4 shadow-lg shadow-slate-300">
+              <img src={BYU_LOGO} alt="BYU" className="h-12 w-auto" />
             </div>
             <h1 className="text-4xl font-bold text-slate-900 tracking-tight mb-2">CaseConnect</h1>
             <p className="text-slate-500 text-lg">Schedule. Practice. Succeed.</p>
@@ -181,11 +233,26 @@ export default function App() {
               <LogIn size={20} className="text-indigo-600"/> Member Login
             </h2>
             <div className="space-y-4">
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label>
-                <input type="text" placeholder="e.g. Jane Doe" className="w-full p-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={myInfo.name} onChange={e => setMyInfo({...myInfo, name: e.target.value})}
+                <input type="text" placeholder="e.g. Jane Doe" autoComplete="off" className="w-full p-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  value={myInfo.name}
+                  onChange={e => { setMyInfo({...myInfo, name: e.target.value}); setShowSuggest(true); }}
+                  onFocus={() => setShowSuggest(true)}
+                  onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
                 />
+                {showSuggest && suggestions.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                    <p className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 bg-slate-50">Returning member? Tap to autofill</p>
+                    {suggestions.map(s => (
+                      <button key={s.id} type="button" onMouseDown={() => applyMember(s)}
+                        className="w-full text-left px-3 py-2 hover:bg-indigo-50 transition flex justify-between items-center">
+                        <span className="text-sm font-medium text-slate-800">{s.name}</span>
+                        <span className="text-xs text-slate-400">{s.email}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
@@ -218,7 +285,7 @@ export default function App() {
           <nav className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
             <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="bg-indigo-600 text-white p-1.5 rounded-md"><Calendar size={20} /></div>
+                <div className="bg-[#002E5D] p-1.5 rounded-md flex items-center"><img src={BYU_LOGO} alt="BYU" className="h-6 w-auto" /></div>
                 <span className="font-bold text-xl tracking-tight text-slate-800">CaseConnect</span>
               </div>
               <div className="hidden md:flex bg-slate-100 p-1 rounded-lg">
@@ -267,6 +334,15 @@ export default function App() {
                           <option value="Interviewer">Interviewer</option>
                           <option value="Interviewee">Interviewee</option>
                         </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase">Time Zone</label>
+                        <select className="w-full p-2.5 mt-1 rounded-lg border border-slate-300 text-sm bg-white"
+                          value={myInfo.timeZone} onChange={e => setMyInfo({...myInfo, timeZone: e.target.value})}
+                        >
+                          {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                        </select>
+                        <p className="text-[11px] text-slate-400 mt-1">Your grid times are in this zone. Invites adjust automatically.</p>
                       </div>
                     </div>
                   </div>
@@ -324,26 +400,18 @@ export default function App() {
                   <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><BookOpen size={24} /></div>
                   <h1 className="text-2xl font-bold text-slate-900">Club Resources</h1>
                 </div>
-                <div className="grid md:grid-cols-2 gap-6">
-                  {RESOURCES.map((res, idx) => (
-                    <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:border-indigo-300 transition-all flex gap-4">
-                      <div className="bg-slate-50 w-12 h-12 rounded-lg flex items-center justify-center text-slate-400 flex-shrink-0">
-                        {res.type === 'PDF' ? <FileText size={24} /> : res.type === 'Web' ? <Zap size={24} /> : <HelpCircle size={24} />}
-                      </div>
-                      <div className="flex-grow">
-                        <h3 className="font-bold text-slate-800">{res.title}</h3>
-                        <p className="text-sm text-slate-500 mt-1">{res.desc}</p>
-                        <div className="flex items-center gap-3 mt-3">
-                          <span className="text-xs font-bold px-2 py-1 bg-slate-100 rounded text-slate-600">{res.type}</span>
-                          {res.size && <span className="text-xs text-slate-400">{res.size}</span>}
-                        </div>
-                      </div>
-                      <button className="self-center p-2 text-indigo-600 hover:bg-indigo-50 rounded-full transition">
-                        <Download size={20} />
-                      </button>
+                <a href="https://www.byumca.com/" target="_blank" rel="noopener noreferrer"
+                  className="block max-w-xl bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all">
+                  <div className="flex items-center gap-4">
+                    <div className="bg-[#002E5D] w-14 h-14 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <img src={BYU_LOGO} alt="BYU" className="h-7 w-auto" />
                     </div>
-                  ))}
-                </div>
+                    <div className="flex-grow">
+                      <h3 className="font-bold text-slate-800 flex items-center gap-2">BYU Management Consulting Association <ExternalLink size={16} className="text-indigo-500"/></h3>
+                      <p className="text-sm text-slate-500 mt-1">Case books, events, and resources on the official BYU MCA website.</p>
+                    </div>
+                  </div>
+                </a>
               </div>
             )}
           </main>
@@ -373,7 +441,7 @@ function FindPartnerModule({ myInfo, sessions, loading, onRefresh, setNotificati
   }, [mode, filters, myInfo, sessions]);
 
   // --- BOOK A SLOT: Firestore transaction (atomic, prevents double-booking) ---
-  const handleBookSlot = async (partnerId, slot, partnerName, partnerEmail) => {
+  const handleBookSlot = async (partnerId, slot, partnerName, partnerEmail, partnerTimeZone) => {
     try {
       await runTransaction(db, async (tx) => {
         const partnerRef = doc(db, 'sessions', partnerId);
@@ -393,7 +461,7 @@ function FindPartnerModule({ myInfo, sessions, loading, onRefresh, setNotificati
       });
 
       setNotification({ title: "Booking Confirmed!", message: `Meeting with ${partnerName} for ${slot.replace('-', ' ')}:00.`, type: "success" });
-      setLastBooking({ partnerName, partnerEmail: partnerEmail || partnerId, slot });
+      setLastBooking({ partnerName, partnerEmail: partnerEmail || partnerId, slot, timeZone: partnerTimeZone || DEFAULT_TZ });
       onRefresh(); // (data is already live; harmless refresh)
     } catch (error) {
       setNotification({ title: "Booking Failed", message: error.message || "Someone else might have taken this slot.", type: "error" });
@@ -482,7 +550,7 @@ function PartnerCard({ user, mode, mySlots, filters, onBook }) {
       </div>
       <div className="flex flex-wrap gap-2 mt-4">
         {visibleSlots.map(slot => (
-          <button key={slot} onClick={() => onBook(user.id, slot, user.name, user.email)} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs font-medium text-slate-600 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-colors">
+          <button key={slot} onClick={() => onBook(user.id, slot, user.name, user.email, user.timeZone)} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs font-medium text-slate-600 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-colors">
             {slot.replace('-', ' ')}:00
           </button>
         ))}
@@ -493,7 +561,7 @@ function PartnerCard({ user, mode, mySlots, filters, onBook }) {
 
 // --- Calendar invite confirmation (client-side; no backend / email service) ---
 function BookingConfirm({ booking, myInfo, onClose }) {
-  const { start, end } = slotToDateRange(booking.slot);
+  const { start, end } = slotToDateRange(booking.slot, booking.timeZone);
   const title = `CaseConnect practice with ${booking.partnerName}`;
   const details = `Mock case interview practice via CaseConnect.\nPartner: ${booking.partnerName} (${booking.partnerEmail})\nBooked by: ${myInfo.name} (${myInfo.email})`;
   const gcalUrl = googleCalendarUrl({ title, details, start, end, guestEmail: booking.partnerEmail });
@@ -503,7 +571,7 @@ function BookingConfirm({ booking, myInfo, onClose }) {
     downloadIcs(ics);
   };
 
-  const niceTime = start.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' });
+  const niceTime = formatSlotTime(booking.slot, booking.timeZone);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 animate-in fade-in duration-200">
