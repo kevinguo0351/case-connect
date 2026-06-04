@@ -29,7 +29,12 @@ function tzOffset(date, timeZone) {
 }
 
 // Convert a wall-clock slot key in `timeZone` to a {start, end} of absolute Dates.
+// Legacy/malformed keys (e.g. old "Mon-14" weekday slots) resolve to the epoch,
+// so they're treated as past and quietly ignored instead of crashing the app.
 export function slotToDateRange(slotKey, timeZone) {
+  if (typeof slotKey !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(slotKey)) {
+    return { start: new Date(0), end: new Date(0) };
+  }
   const [datePart, timePart] = slotKey.split('T');
   const [Y, Mo, D] = datePart.split('-').map(Number);
   const [H, Mi] = timePart.split(':').map(Number);
